@@ -3,9 +3,7 @@
 # ===============================================
 # 🛡️ Error Handling
 # ===============================================
-# Exit immediately if a command exits with a non-zero status, 
-# exit immediately if any command in a pipeline fails, 
-# and treat unset variables as an error.
+# Exit immediately if a command exits with a non-zero status.
 set -euo pipefail
 
 # 🎨 Color Codes & Emojis
@@ -41,6 +39,7 @@ EMOJI_TELE="📢"
 # 🗂️ Global Variables
 REPO_URL="https://github.com/ahlflk/GCP-XRAY.git"
 REPO_DIR="GCP-XRAY"
+AR_REPO="gcp-xray-repo"
 DEFAULT_SERVICE_NAME="gcp-ahlflk"
 DEFAULT_HOST_DOMAIN="m.googleapis.com"
 DEFAULT_GRPC_SERVICE="ahlflk"
@@ -55,12 +54,14 @@ VLESS_PATH="/vless"
 TELEGRAM_BOT_TOKEN=""
 TELEGRAM_CHAT_ID=""
 TELEGRAM_CHOICE="1" # Default: Do Not Send
+SPINNER_PID="" # Global variable for spinner process ID
+
 
 # -----------------------------------------------
 # 🖼️ Helper Functions
 # -----------------------------------------------
 
-# Function for Header Title (Fixed Syntax Error - Short Border)
+# Function for Header Title
 header() {
     local title="$1"
     local emoji="$2"
@@ -84,7 +85,7 @@ header() {
     echo -e "${NC}"
 }
 
-# UUID Generator using Bash (to avoid 'uuidgen' dependency)
+# UUID Generator using Bash 
 generate_uuid() {
     local N=16
     local uuid_string=""
@@ -103,13 +104,72 @@ generate_uuid() {
 
 # General Helpers
 log() { echo -e "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> deploy.log; }
-error() { echo -e "${RED}ERROR:${NC} $1" 1>&2; log "ERROR: $1"; exit 1; }
+error() { 
+    echo -e "${RED}ERROR:${NC} $1" 1>&2; log "ERROR: $1"; 
+    # Add pause before exit to view error
+    read -rp "$(echo -e "${EMOJI_FAIL} ${RED}Press [Enter] to exit...${NC}")"
+    exit 1; 
+}
 warn() { echo -e "${YELLOW}WARNING:${NC} $1"; log "WARNING: $1"; }
 info() { echo -e "${BLUE}INFO:${NC} $1"; log "INFO: $1"; }
 selected() { echo -e "${EMOJI_SUCCESS} ${GREEN}${BOLD}Selected:${NC} ${CYAN}${UNDERLINE}$1${NC}"; log "Selected: $1"; }
+
+# Progress Bar (Spinner implementation)
+start_spinner() {
+    local delay=0.1
+    local spin="⣾⣽⣻⢿⡿⣟⣯⣷"
+    local i=0
+    
+    (
+        while :; do
+            echo -en "\r${EMOJI_WAIT} ${CYAN}Processing... ${NC}${spin:$i:1}"
+            i=$(( (i+1) % ${#spin} ))
+            sleep $delay
+        done
+    ) &
+    SPINNER_PID=$!
+    # Trap ensures spinner is killed if the script exits unexpectedly
+    trap "kill $SPINNER_PID 2>/dev/null; exit 1" EXIT
+}
+
+# Stops the background spinner
+stop_spinner() {
+    if [ -n "$SPINNER_PID" ]; then
+        kill $SPINNER_PID 2>/dev/null
+        wait $SPINNER_PID 2>/dev/null
+    fi
+    # Clear the spinner line and print "Complete!"
+    echo -e "\r${EMOJI_SUCCESS} ${GREEN}Complete!${NC}                            "
+    SPINNER_PID=""
+}
+
+# Wrapper to run a command and show spinner until it finishes
+# The command's own output is redirected to /dev/null
+start_and_wait() {
+    local command_to_run="$1"
+    
+    # Run the command in the background, suppressing all output
+    eval "$command_to_run" >/dev/null 2>&1 &
+    local command_pid=$!
+    
+    # Start the visual spinner
+    start_spinner
+    
+    # Wait for the command to finish
+    if ! wait $command_pid; then
+        stop_spinner
+        error "Command failed: $command_to_run"
+    fi
+    
+    # Stop the visual spinner
+    stop_spinner
+    return 0
+}
+
+# Progress Bar (Simple percentage for known wait times)
 progress_bar() {
     local duration=$1; local bar_length=20; local elapsed=0;
-    echo -n "${EMOJI_WAIT} ${CYAN}Processing...${NC}"
+    echo -n "${EMOJI_WAIT} Processing..."
     while [ "$elapsed" -lt "$duration" ]; do
         local progress=$(( ($elapsed * $bar_length) / $duration )); local filled=$(printf '%.0s#' $(seq 1 $progress)); local empty=$(printf '%.0s-' $(seq 1 $(( $bar_length - $progress ))));
         printf "\r${EMOJI_WAIT} [${GREEN}${filled}${CYAN}${empty}${NC}] %3d%%" $(( ($elapsed * 100) / $duration ))
@@ -117,9 +177,34 @@ progress_bar() {
     done
     printf "\r${EMOJI_WAIT} [${GREEN}$(printf '%.0s#' $(seq 1 $bar_length))${NC}] 100%% Complete! ${EMOJI_SUCCESS}\n"
 }
-validate_uuid() { local uuid_pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"; if [[ ! "$1" =~ $uuid_pattern ]]; then error "Invalid UUID format: $1 🚫"; fi; return 0; }
-validate_bot_token() { local token_pattern="^[0-9]{9,10}:[a-zA-Z0-9_-]{35}$"; if [[ ! "$1" =~ $token_pattern ]]; then error "Invalid Telegram Bot Token format 🚫"; fi; return 0; }
-validate_channel_id() { if [[ ! "$1" =~ ^-?[0-9]+$ ]]; then error "Invalid Channel/Group ID format 🚫"; fi; return 0; }
+
+# Validation functions
+validate_uuid() { local uuid_pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"; if [[ ! "$1" =~ $uuid_pattern ]]; then error "Invalid UUID format: $1"; fi; return 0; }
+validate_bot_token() { local token_pattern="^[0-9]{9,10}:[a-zA-Z0-9_-]{35}$"; if [[ ! "$1" =~ $token_pattern ]]; then error "Invalid Telegram Bot Token format"; fi; return 0; }
+validate_channel_id() { if [[ ! "$1" =~ ^-?[0-9]+$ ]]; then error "Invalid Channel/Group ID format"; fi; return 0; }
+
+# Function to send Telegram Notification (Markdown format)
+send_telegram_notification() {
+    local message="$1"
+    local telegram_url="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+
+    # Send to main chat ID (Channel/Group/Private Bot Chat)
+    if [[ -n "$TELEGRAM_CHAT_ID" ]]; then
+        curl -s -X POST "$telegram_url" \
+            -d chat_id="$TELEGRAM_CHAT_ID" \
+            -d text="$message" \
+            -d parse_mode="Markdown" >/dev/null || warn "Failed to send message to Chat ID: $TELEGRAM_CHAT_ID"
+    fi
+
+    # Send only to private bot chat (if choice 4 or 5 and chat_id is not set, or for choice 4 explicitly)
+    if [[ "$TELEGRAM_CHOICE" == "4" && -z "$TELEGRAM_CHAT_ID" ]] || [[ "$TELEGRAM_CHOICE" == "5" && -z "$TELEGRAM_CHAT_ID" ]]; then
+        local bot_owner_id=$(echo "$TELEGRAM_BOT_TOKEN" | cut -d ':' -f 1)
+        curl -s -X POST "$telegram_url" \
+            -d chat_id="$bot_owner_id" \
+            -d text="$message" \
+            -d parse_mode="Markdown" >/dev/null || warn "Failed to send message to Bot Private Chat"
+    fi
+}
 
 
 # -----------------------------------------------
@@ -141,7 +226,8 @@ VLESS_DEFAULT="1"
 echo -e "  1. ${CYAN}${VLESS_PROTOCOL}${NC} ${GREEN}(Default)${NC}"
 echo -e "  2. ${CYAN}${VLESS_GRPC_PROTOCOL}${NC}"
 echo -e "  3. ${CYAN}${TROJAN_PROTOCOL}${NC}"
-read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter your choice (1/2/3) [${VLESS_DEFAULT}]: ${NC}")" PROTOCOL_CHOICE
+echo
+read -rp "$(echo -e "${EMOJI_PROMPT} Enter your choice (1/2/3) [${VLESS_DEFAULT}]: ${NC}")" PROTOCOL_CHOICE
 PROTOCOL_CHOICE=${PROTOCOL_CHOICE:-$VLESS_DEFAULT}
 
 case "$PROTOCOL_CHOICE" in
@@ -153,18 +239,18 @@ esac
 selected "$PROTOCOL"
 
 
-# 2. Region (Flags moved to front)
+# 2. Region
 header "CLOUD RUN REGION SELECTION" "$EMOJI_LOCATION"
 REGIONS=(
-    "🇺🇸 us-central1 (Council Bluffs, Iowa, North America) ${GREEN}(Default)${NC}" 
-    "🇺🇸 us-east1 (Moncks Corner, South Carolina, North America)" 
-    "🇺🇸 us-south1 (Dallas, Texas, North America)" 
-    "🇨🇱 southamerica-west1 (Santiago, Chile, South America)" 
-    "🇺🇸 us-west1 (The Dalles, Oregon, North America)" 
-    "🇨🇦 northamerica-northeast2 (Toronto, Ontario, North America)" 
-    "🇸🇬 asia-southeast1 (Jurong West, Singapore)" 
-    "🇯🇵 asia-northeast1 (Tokyo, Japan)" 
-    "🇹🇼 asia-east1 (Changhua County, Taiwan)" 
+    " 🇺🇸 us-central1 (Council Bluffs, Iowa, North America) ${GREEN}(Default)${NC}" 
+    " 🇺🇸 us-east1 (Moncks Corner, South Carolina, North America)" 
+    " 🇺🇸 us-south1 (Dallas, Texas, North America)" 
+    " 🇺🇸 us-west1 (The Dalles, Oregon, North America)" 
+    " 🇺🇸 us-west2 (Los Angeles, California, North America)" 
+    " 🇨🇦 northamerica-northeast2 (Toronto, Ontario, North America)" 
+    " 🇸🇬 asia-southeast1 (Jurong West, Singapore)" 
+    " 🇯🇵 asia-northeast1 (Tokyo, Japan)" 
+    " 🇹🇼 asia-east1 (Changhua County, Taiwan)" 
     "🇭🇰 asia-east2 (Hong Kong)" 
     "🇮🇳 asia-south1 (Mumbai, India)" 
     "🇮🇩 asia-southeast2 (Jakarta, Indonesia)" 
@@ -173,8 +259,8 @@ DEFAULT_REGION_INDEX=1
 for i in "${!REGIONS[@]}"; do
     echo -e "  $((i+1)). ${REGIONS[$i]}"
 done
-
-read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter your choice (1-${#REGIONS[@]}) or Enter [${DEFAULT_REGION_INDEX}]: ${NC}")" REGION_CHOICE
+echo
+read -rp "$(echo -e "${EMOJI_PROMPT} Enter your choice (1-${#REGIONS[@]}) or Enter [${DEFAULT_REGION_INDEX}]: ${NC}")" REGION_CHOICE
 REGION_CHOICE=${REGION_CHOICE:-$DEFAULT_REGION_INDEX}
 if [[ "$REGION_CHOICE" -ge 1 && "$REGION_CHOICE" -le ${#REGIONS[@]} ]]; then
     REGION=$(echo "${REGIONS[$((REGION_CHOICE-1))]}" | awk '{print $2}') 
@@ -187,10 +273,10 @@ selected "$REGION"
 # 3. CPU
 header "CPU LIMIT SELECTION" "$EMOJI_CPU"
 CPU_OPTIONS=(
-    "1 CPU Core (Low Cost)"
-    "2 CPU Cores (Balance) ${GREEN}(Default)${NC}" 
-    "4 CPU Cores (Performance)"
-    "8 CPU Cores (High Perf)"
+    "1  CPU Core (Low Cost)"
+    "2  CPU Cores (Balance) ${GREEN}(Default)${NC}" 
+    "4  CPU Cores (Performance)"
+    "8  CPU Cores (High Perf)"
     "16 CPU Cores (Max Perf)"
 )
 CPUS=(1 2 4 8 16)
@@ -198,7 +284,8 @@ DEFAULT_CPU_INDEX=2
 for i in "${!CPU_OPTIONS[@]}"; do
     echo -e "  $((i+1)). ${CPU_OPTIONS[$i]}"
 done
-read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter your choice (1-${#CPUS[@]}) or Enter [${DEFAULT_CPU_INDEX}]: ${NC}")" CPU_CHOICE
+echo
+read -rp "$(echo -e "${EMOJI_PROMPT} Enter your choice (1-${#CPUS[@]}) or Enter [${DEFAULT_CPU_INDEX}]: ${NC}")" CPU_CHOICE
 CPU_CHOICE=${CPU_CHOICE:-$DEFAULT_CPU_INDEX}
 if [[ "$CPU_CHOICE" -ge 1 && "$CPU_CHOICE" -le ${#CPUS[@]} ]]; then
     CPU_LIMIT="${CPUS[$((CPU_CHOICE-1))]}"
@@ -208,7 +295,7 @@ fi
 selected "${CPU_LIMIT} CPU Cores"
 
 
-# 4. Memory (512Mi added)
+# 4. Memory
 header "MEMORY LIMIT SELECTION" "$EMOJI_MEMORY"
 MEMORY_OPTIONS=(
     "1. 512Mi (Minimum/Low Cost)" 
@@ -224,8 +311,8 @@ DEFAULT_MEMORY_INDEX=3
 for opt in "${MEMORY_OPTIONS[@]}"; do
     echo -e "  ${opt}"
 done
-
-read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter your choice (1-${#MEMORIES[@]}) or Enter [${DEFAULT_MEMORY_INDEX}]: ${NC}")" MEMORY_CHOICE
+echo
+read -rp "$(echo -e "${EMOJI_PROMPT} Enter your choice (1-${#MEMORIES[@]}) or Enter [${DEFAULT_MEMORY_INDEX}]: ${NC}")" MEMORY_CHOICE
 MEMORY_CHOICE=${MEMORY_CHOICE:-$DEFAULT_MEMORY_INDEX}
 if [[ "$MEMORY_CHOICE" -ge 1 && "$MEMORY_CHOICE" -le ${#MEMORIES[@]} ]]; then
     MEMORY_LIMIT="${MEMORIES[$((MEMORY_CHOICE-1))]}"
@@ -237,8 +324,9 @@ selected "$MEMORY_LIMIT"
 
 # 5. Service Name
 header "CLOUD RUN SERVICE NAME" "$EMOJI_NAME"
-echo -e "${EMOJI_INFO} ${BLUE}Default Service Name: ${CYAN}${DEFAULT_SERVICE_NAME}${NC} ${GREEN}(Default)${NC}"
-read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter Custom Service Name or Enter [${DEFAULT_SERVICE_NAME}]: ${NC}")" CUSTOM_SERVICE_NAME
+echo -e "${EMOJI_INFO} Default Service Name: ${CYAN}${DEFAULT_SERVICE_NAME}${NC} ${GREEN}(Default)${NC}"
+echo
+read -rp "$(echo -e "${EMOJI_PROMPT} Enter Custom Service Name or Enter [${DEFAULT_SERVICE_NAME}]: ${NC}")" CUSTOM_SERVICE_NAME
 SERVICE_NAME=${CUSTOM_SERVICE_NAME:-$DEFAULT_SERVICE_NAME}
 SERVICE_NAME=$(echo "$SERVICE_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
 if [[ -z "$SERVICE_NAME" ]]; then
@@ -250,8 +338,9 @@ selected "$SERVICE_NAME"
 
 # 6. Host Domain (SNI)
 header "HOST DOMAIN (SNI)" "$EMOJI_DOMAIN"
-echo -e "${EMOJI_INFO} ${BLUE}Default Host Domain: ${CYAN}${DEFAULT_HOST_DOMAIN}${NC} ${GREEN}(Default)${NC}"
-read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter Custom Host Domain or Enter [${DEFAULT_HOST_DOMAIN}]: ${NC}")" CUSTOM_HOST_DOMAIN
+echo -e "${EMOJI_INFO} Default Host Domain: ${CYAN}${DEFAULT_HOST_DOMAIN}${NC} ${GREEN}(Default)${NC}"
+echo
+read -rp "$(echo -e "${EMOJI_PROMPT} Enter Custom Host Domain or Enter [${DEFAULT_HOST_DOMAIN}]: ${NC}")" CUSTOM_HOST_DOMAIN
 HOST_DOMAIN=${CUSTOM_HOST_DOMAIN:-$DEFAULT_HOST_DOMAIN}
 selected "$HOST_DOMAIN"
 
@@ -263,14 +352,15 @@ if [[ "$PROTOCOL_LOWER" != "trojan" ]]; then
     echo -e "  1. ${CYAN}${DEFAULT_UUID}${NC} ${GREEN}(Default)${NC}"
     echo -e "  2. ${CYAN}Random UUID Generate (Internal Bash)${NC}"
     echo -e "  3. ${CYAN}Custom UUID${NC}"
+    echo
     DEFAULT_UUID_CHOICE="1"
-    read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter your choice (1/2/3) or Enter [1]: ${NC}")" UUID_CHOICE
+    read -rp "$(echo -e "${EMOJI_PROMPT} Enter your choice (1/2/3) or Enter [1]: ${NC}")" UUID_CHOICE
     UUID_CHOICE=${UUID_CHOICE:-$DEFAULT_UUID_CHOICE}
     
     case "$UUID_CHOICE" in
         1) USER_ID=$DEFAULT_UUID ;;
         2) USER_ID=$(generate_uuid); info "Generated UUID: ${CYAN}$USER_ID${NC}";;
-        3) read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter Custom UUID: ${NC}")" CUSTOM_UUID
+        3) read -rp "$(echo -e "${EMOJI_PROMPT} Enter Custom UUID: ${NC}")" CUSTOM_UUID
            validate_uuid "$CUSTOM_UUID"
            USER_ID=$CUSTOM_UUID ;;
         *) warn "Invalid choice. Using Default UUID."; USER_ID=$DEFAULT_UUID ;;
@@ -280,8 +370,9 @@ if [[ "$PROTOCOL_LOWER" != "trojan" ]]; then
     # VLESS gRPC - Service Name
     if [[ "$PROTOCOL_LOWER" == "vlessgrpc" ]]; then
         header "gRPC SERVICE NAME" "$EMOJI_CONFIG"
-        echo -e "${EMOJI_INFO} ${BLUE}Default gRPC Service Name: ${CYAN}${DEFAULT_GRPC_SERVICE}${NC} ${GREEN}(Default)${NC}"
-        read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter Custom gRPC Service Name or Enter [${DEFAULT_GRPC_SERVICE}]: ${NC}")" CUSTOM_GRPC_SERVICE
+        echo -e "${EMOJI_INFO} Default gRPC Service Name: ${CYAN}${DEFAULT_GRPC_SERVICE}${NC} ${GREEN}(Default)${NC}"
+        echo
+        read -rp "$(echo -e "${EMOJI_PROMPT} Enter Custom gRPC Service Name or Enter [${DEFAULT_GRPC_SERVICE}]: ${NC}")" CUSTOM_GRPC_SERVICE
         GRPC_SERVICE_NAME=${CUSTOM_GRPC_SERVICE:-$DEFAULT_GRPC_SERVICE}
         VLESS_PATH="/${GRPC_SERVICE_NAME}" 
         selected "$GRPC_SERVICE_NAME"
@@ -290,41 +381,44 @@ if [[ "$PROTOCOL_LOWER" != "trojan" ]]; then
 else # Trojan
     # Trojan Password
     header "TROJAN PASSWORD" "$EMOJI_CONFIG"
-    echo -e "${EMOJI_INFO} ${BLUE}Default Password: ${CYAN}${DEFAULT_TROJAN_PASS}${NC} ${GREEN}(Default)${NC}"
-    read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter Custom Password or Enter [${DEFAULT_TROJAN_PASS}]: ${NC}")" CUSTOM_TROJAN_PASS
+    echo -e "${EMOJI_INFO} Default Password: ${CYAN}${DEFAULT_TROJAN_PASS}${NC} ${GREEN}(Default)${NC}"
+    echo
+    read -rp "$(echo -e "${EMOJI_PROMPT} Enter Custom Password or Enter [${DEFAULT_TROJAN_PASS}]: ${NC}")" CUSTOM_TROJAN_PASS
     USER_ID=${CUSTOM_TROJAN_PASS:-$DEFAULT_TROJAN_PASS}
     selected "$USER_ID"
 fi
 
 
-# 8. Telegram Sharing Option (NEW Option 5 Added)
+# 8. Telegram Sharing Option
 header "TELEGRAM SHARING OPTIONS" "$EMOJI_TELE"
 TELEGRAM_OPTIONS=(
     "1. Do Not Send Telegram ${GREEN}(Default)${NC}"
     "2. Send to Channel Only"
     "3. Send to Group Only"
     "4. Send to Bot (Private Chat)"
-    "5. Send to Bot & Channel/Group (Recommended)" # NEW OPTION
+    "5. Send to Bot & Channel/Group (Recommended)"
 )
 DEFAULT_TELEGRAM="1"
 for opt in "${TELEGRAM_OPTIONS[@]}"; do
     echo -e "  ${CYAN}${opt}${NC}"
 done
-
-read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter your choice (1-5) or Enter [1]: ${NC}")" TELEGRAM_CHOICE
+echo
+read -rp "$(echo -e "${EMOJI_PROMPT} Enter your choice (1-5) or Enter [1]: ${NC}")" TELEGRAM_CHOICE
 TELEGRAM_CHOICE=${TELEGRAM_CHOICE:-$DEFAULT_TELEGRAM}
 TELEGRAM_MODE="${TELEGRAM_OPTIONS[$((TELEGRAM_CHOICE-1))]}"
 
 
 if [[ "$TELEGRAM_CHOICE" -ge "2" && "$TELEGRAM_CHOICE" -le "5" ]]; then
     # Bot Token required for all sending modes
-    read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter Telegram Bot Token (Required): ${NC}")" CUSTOM_BOT_TOKEN
+    echo
+    read -rp "$(echo -e "${EMOJI_PROMPT} Enter Telegram Bot Token (Required): ${NC}")" CUSTOM_BOT_TOKEN
     validate_bot_token "$CUSTOM_BOT_TOKEN"
     TELEGRAM_BOT_TOKEN="$CUSTOM_BOT_TOKEN"
 
     # Chat ID is required for Channel/Group/Both
     if [[ "$TELEGRAM_CHOICE" -eq "2" || "$TELEGRAM_CHOICE" -eq "3" || "$TELEGRAM_CHOICE" -eq "5" ]]; then
-        read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Enter Telegram Chat ID (Channel/Group ID: -12345...): ${NC}")" CUSTOM_CHAT_ID
+    echo
+        read -rp "$(echo -e "${EMOJI_PROMPT} Enter Telegram Chat ID (Channel/Group ID: -12345...): ${NC}")" CUSTOM_CHAT_ID
         validate_channel_id "$CUSTOM_CHAT_ID" 
         TELEGRAM_CHAT_ID="$CUSTOM_CHAT_ID"
     fi
@@ -364,8 +458,8 @@ if [ "$TELEGRAM_CHOICE" -ne "1" ]; then
 fi
 
 # 3. Confirmation Step
-echo -e "\n${YELLOW}Configuration is complete.${NC}"
-read -rp "$(echo -e "${EMOJI_PROMPT} ${GREEN}Continue with deployment? (Y/n) [Y]: ${NC}")" CONFIRM_DEPLOY
+echo -e "\n${YELLOW}${EMOJI_START} Configuration is complete.${NC}"
+read -rp "$(echo -e "${EMOJI_PROMPT} Continue with deployment? (Y/n) [Y]: ${NC}")" CONFIRM_DEPLOY
 CONFIRM_DEPLOY=${CONFIRM_DEPLOY:-Y}
 
 if [[ ! "$CONFIRM_DEPLOY" =~ ^[Yy]$ ]]; then
@@ -400,8 +494,18 @@ header "GCP SETUP & API ENABLEMENT" "$EMOJI_START"
 
 gcloud config set project "$GCP_PROJECT_ID" --quiet
 info "Enabling necessary APIs (Cloud Run, Artifact Registry)..."
+
+API_CMD="gcloud services enable run.googleapis.com artifactregistry.googleapis.com --project=\"$GCP_PROJECT_ID\""
+
+# Use progress_bar for visual wait, and run the command capturing stderr
 progress_bar 10 
-gcloud services enable run.googleapis.com artifactregistry.googleapis.com --project="$GCP_PROJECT_ID" || error "Failed to enable GCP APIs."
+if ! API_OUTPUT=$(eval "$API_CMD" 2>&1); then
+    echo -e "\n${RED}--- GCP API ENABLEMENT ERROR LOG ---${NC}"
+    echo "$API_OUTPUT" 1>&2
+    echo -e "${RED}------------------------------------${NC}\n"
+    error "GCP APIs could not be enabled. Please check permissions for user ${GCP_PROJECT_ID}."
+fi
+
 info "APIs enabled successfully."
 
 
@@ -417,7 +521,7 @@ if [ -d "$REPO_DIR" ]; then
     rm -rf "$REPO_DIR"
 fi
 info "Cloning $REPO_URL..."
-progress_bar 5
+progress_bar 5 # Use simple bar for this short known task
 if ! git clone "$REPO_URL" >/dev/null 2>&1; then
     error "Git Clone failed. Check if the repository URL is correct or if Git is configured."
 fi
@@ -446,9 +550,147 @@ fi
 
 info "config.json created successfully. Dockerfile should be ready."
 
-# ... (Rest of the script: Build, Deploy, Share Link generation, Telegram Notification) ...
+# ===============================================
+# 🛠️ DOCKER BUILD & ARTIFACT REGISTRY PUSH
+# ===============================================
+header "DOCKER IMAGE BUILD & PUSH" "$EMOJI_START"
+
+# 1. Image Tag Definition
+AR_LOCATION="$REGION"
+IMAGE_TAG="${AR_LOCATION}-docker.pkg.dev/$GCP_PROJECT_ID/$AR_REPO/$SERVICE_NAME:latest"
+
+# 2. Artifact Registry Setup & Auth (Output Hidden)
+info "Setting up Artifact Registry Repository: ${CYAN}$AR_REPO${NC} in ${CYAN}$AR_LOCATION${NC}"
+gcloud artifacts repositories create "$AR_REPO" \
+    --repository-format=docker \
+    --location="$AR_LOCATION" \
+    --description="Docker repository for XRAY services" \
+    --project="$GCP_PROJECT_ID" --quiet 2>/dev/null || info "Repository already exists or created successfully."
+
+info "Authenticating Docker for Artifact Registry..."
+gcloud auth configure-docker "$AR_LOCATION-docker.pkg.dev" --quiet >/dev/null 2>&1 || error "Failed to authenticate Docker."
+info "Authentication successful."
+
+
+# 3. Docker Build (Log Hidden)
+info "Building Docker Image: ${CYAN}$IMAGE_TAG${NC}..."
+if ! docker build -t "$IMAGE_TAG" . >/dev/null 2>&1; then 
+    error "Docker build failed. Check 'docker build' output manually."
+fi
+info "Docker image built successfully."
+
+
+# 4. Docker Push (Log Hidden)
+info "Pushing Docker Image to Artifact Registry..."
+if ! docker push "$IMAGE_TAG" >/dev/null 2>&1; then
+    error "Docker push failed. Check your network or permissions."
+fi
+info "Image pushed successfully."
+
 
 # ===============================================
-# 🎉 Final Message
+# ☁️ CLOUD RUN SERVICE DEPLOY (With Spinner)
 # ===============================================
-echo -e "\n${EMOJI_TITLE} ${CYAN}${BOLD}Configuration Complete. Continue with Build/Deployment Steps!${NC} ${EMOJI_TITLE}"
+header "CLOUD RUN SERVICE DEPLOYMENT" "$EMOJI_WAIT"
+
+info "Deploying Cloud Run Service: ${CYAN}$SERVICE_NAME${NC} in ${CYAN}$REGION${NC}..."
+info "Waiting for service to be ready... (Max timeout 5 minutes)"
+
+DEPLOY_COMMAND="gcloud run deploy \"$SERVICE_NAME\" \
+    --image=\"$IMAGE_TAG\" \
+    --region=\"$REGION\" \
+    --cpu=\"$CPU_LIMIT\" \
+    --memory=\"$MEMORY_LIMIT\" \
+    --min-instances=1 \
+    --max-instances=1 \
+    --allow-unauthenticated \
+    --port=8080 \
+    --project=\"$GCP_PROJECT_ID\" \
+    --timeout=300 \
+    --quiet \
+    --wait"
+
+# Use start_and_wait (spinner) until deployment finishes
+if ! start_and_wait "$DEPLOY_COMMAND"; then
+    error "Cloud Run deployment failed. Check the GCP console for deployment logs."
+fi
+
+# The spinner is stopped by start_and_wait
+info "Deployment successful! Service is now fully ready. ${EMOJI_SUCCESS}"
+
+
+# ===============================================
+# 🎉 FINAL CONFIGURATION LINK GENERATION & SHARING
+# ===============================================
+header "DEPLOYMENT SUCCESS & CONFIG LINK" "$EMOJI_SUCCESS"
+echo -e "\n${GREEN}${BOLD}======================================================${NC}"
+echo -e "${EMOJI_SUCCESS} ${GREEN}${BOLD}SERVICE DEPLOYED SUCCESSFULLY! SERVICE IS ACTIVE.${NC} ${EMOJI_SUCCESS}"
+echo -e "${GREEN}${BOLD}======================================================${NC}\n"
+
+# 1. Get Service URL
+SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
+    --region="$REGION" \
+    --format='value(status.url)' \
+    --project="$GCP_PROJECT_ID" 2>/dev/null)
+
+if [ -z "$SERVICE_URL" ]; then
+    error "Failed to retrieve the Service URL after deployment. Service might be in a failed state."
+fi
+
+HOST_NAME=$(echo "$SERVICE_URL" | sed -E 's|https://||; s|/||')
+
+# 2. Configuration Link Generation (URL Encoding Path)
+URL_PATH_ENCODED=$(echo "$VLESS_PATH" | sed 's/\//%2F/g')
+XRAY_LINK_LABEL="GCP-${PROTOCOL_LOWER^^}-${SERVICE_NAME}"
+XRAY_LINK=""
+
+if [[ "$PROTOCOL_LOWER" == "vless" ]]; then
+    # VLESS WS link (ws path encoding required)
+    XRAY_LINK="vless://${USER_ID}@${HOST_NAME}:443?encryption=none&security=tls&host=${HOST_DOMAIN}&path=${URL_PATH_ENCODED}&type=ws&sni=${HOST_DOMAIN}#${XRAY_LINK_LABEL}"
+elif [[ "$PROTOCOL_LOWER" == "vlessgrpc" ]]; then
+    # VLESS gRPC link
+    XRAY_LINK="vless://${USER_ID}@${HOST_NAME}:443?encryption=none&security=tls&type=grpc&serviceName=${GRPC_SERVICE_NAME}&sni=${HOST_DOMAIN}#${XRAY_LINK_LABEL}"
+elif [[ "$PROTOCOL_LOWER" == "trojan" ]]; then
+    # Trojan link
+    XRAY_LINK="trojan://${USER_ID}@${HOST_NAME}:443?security=tls&sni=${HOST_DOMAIN}#${XRAY_LINK_LABEL}"
+fi
+
+
+# 3. Display Links
+echo -e "${EMOJI_LINK} ${BLUE}Cloud Run URL:${NC}           ${CYAN}${SERVICE_URL}${NC}"
+echo -e "${EMOJI_LINK} ${BLUE}XRAY Configuration Link:${NC}"
+echo -e "${GREEN}${BOLD}${XRAY_LINK}${NC}"
+
+
+# 4. Telegram Notification
+if [ "$TELEGRAM_CHOICE" -ne "1" ]; then
+    info "Preparing Telegram notification..."
+    MESSAGE_BODY=$(cat <<EOF
+*GCP XRAY Deployment Success!* ${EMOJI_SUCCESS}
+
+*Protocol:* ${PROTOCOL}
+*Region:* ${REGION}
+*Service Name:* \`${SERVICE_NAME}\`
+*Host/SNI:* \`${HOST_DOMAIN}\`
+
+*XRAY Configuration Link:*
+\`\`\`
+${XRAY_LINK}
+\`\`\`
+
+*Note:* Tap on the link block to copy the full configuration link.
+EOF
+)
+    send_telegram_notification "$MESSAGE_BODY"
+fi
+
+echo -e "\n${EMOJI_TITLE} ${GREEN}${BOLD}Deployment Complete! Your Service is now running.${NC} ${EMOJI_TITLE}"
+cd ..
+rm -rf "$REPO_DIR" # Cleanup cloned directory
+
+# 5. Final Pause (Keeps the terminal open)
+echo
+# Clear the EXIT trap before the final read
+trap - EXIT
+read -rp "$(echo -e "${EMOJI_PROMPT} ${CYAN}Deployment Finished. Press [Enter] to close this window...${NC}")"
+exit 0

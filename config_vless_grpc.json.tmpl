@@ -1,25 +1,37 @@
 {
-  "log": {"loglevel": "warning"},
-  "inbounds": [{
-    "port": 8080,
-    "protocol": "vless",
-    "settings": {
-      "clients": [{
-        "id": "$USER_ID",
-        "level": 0
-      }],
-      "decryption": "none"
-    },
-    "streamSettings": {
-      "network": "grpc",
-      "security": "none",
-      "grpcSettings": {
-        "serviceName": "$GRPC_SERVICE_NAME"
+  "log": {
+    "loglevel": "info"
+  },
+  "inbounds": [
+    {
+      "port": 8080,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "${USER_ID}",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "grpcSettings": {
+          "serviceName": "${GRPC_SERVICE_NAME}"
+        }
       }
     }
-  }],
+  ],
   "outbounds": [
-    {"protocol": "freedom", "tag": "direct"},
-    {"protocol": "blackhole", "tag": "block"}
+    {
+      "protocol": "freedom",
+      "settings": {}
+    },
+    {
+      "protocol": "blackhole",
+      "settings": {},
+      "tag": "blocked"
+    }
   ]
 }

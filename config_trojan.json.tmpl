@@ -1,24 +1,35 @@
 {
-  "log": {"loglevel": "warning"},
-  "inbounds": [{
-    "port": 8080,
-    "protocol": "trojan",
-    "settings": {
-      "clients": [{
-        "password": "$USER_ID",
-        "level": 0
-      }]
-    },
-    "streamSettings": {
-      "network": "tcp",
-      "security": "none",
-      "tcpSettings": {
-        "header": {"type": "none"}
+  "log": {
+    "loglevel": "info"
+  },
+  "inbounds": [
+    {
+      "port": 8080,
+      "protocol": "trojan",
+      "settings": {
+        "clients": [
+          {
+            "password": "${USER_ID}",
+            "level": 0
+          }
+        ],
+        "fallbacks": []
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "none"
       }
     }
-  }],
+  ],
   "outbounds": [
-    {"protocol": "freedom", "tag": "direct"},
-    {"protocol": "blackhole", "tag": "block"}
+    {
+      "protocol": "freedom",
+      "settings": {}
+    },
+    {
+      "protocol": "blackhole",
+      "settings": {},
+      "tag": "blocked"
+    }
   ]
 }
