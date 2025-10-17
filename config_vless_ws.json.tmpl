@@ -23,7 +23,17 @@
             "Host": "${HOST_DOMAIN}"
           }
         }
-      }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"]
+      },
+      "listen": "0.0.0.0",
+      "fallbacks": [
+        {
+          "dest": 443
+        }
+      ]
     }
   ],
   "outbounds": [
