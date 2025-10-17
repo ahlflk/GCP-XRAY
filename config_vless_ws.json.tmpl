@@ -1,15 +1,16 @@
 {
   "log": {
-    "loglevel": "warning"
+    "loglevel": "info"
   },
   "inbounds": [
     {
-      "port": 8080,
+      "port": 80,  // <-- Port 80 သို့ ပြောင်းလိုက်ပါ
       "protocol": "vless",
       "settings": {
         "clients": [
           {
-            "id": "PLACEHOLDER_UUID"
+            "id": "${USER_ID}",
+            "level": 0
           }
         ],
         "decryption": "none"
@@ -17,19 +18,24 @@
       "streamSettings": {
         "network": "ws",
         "wsSettings": {
-          "path": "/vless"
+          "path": "${VLESS_PATH}",
+          "headers": {
+            "Host": "${HOST_DOMAIN}"
+          }
         }
       },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
-      }
+      "listen": "0.0.0.0" 
     }
   ],
   "outbounds": [
     {
       "protocol": "freedom",
       "settings": {}
+    },
+    {
+      "protocol": "blackhole",
+      "settings": {},
+      "tag": "blocked"
     }
   ]
 }
