@@ -24,16 +24,8 @@
           }
         }
       },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
-      },
-      "listen": "0.0.0.0",
-      "fallbacks": [
-        {
-          "dest": 443
-        }
-      ]
+      "listen": "0.0.0.0" 
+      // Cloud Run အတွက် Fallbacks များကို ဖယ်ရှားလိုက်ပါ
     }
   ],
   "outbounds": [
