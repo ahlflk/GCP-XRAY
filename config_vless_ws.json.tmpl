@@ -1,6 +1,6 @@
 {
   "log": {
-    "loglevel": "info"
+    "loglevel": "warning"
   },
   "inbounds": [
     {
@@ -9,8 +9,7 @@
       "settings": {
         "clients": [
           {
-            "id": "${USER_ID}",
-            "level": 0
+            "id": "PLACEHOLDER_UUID"
           }
         ],
         "decryption": "none"
@@ -18,25 +17,19 @@
       "streamSettings": {
         "network": "ws",
         "wsSettings": {
-          "path": "${VLESS_PATH}",
-          "headers": {
-            "Host": "${HOST_DOMAIN}"
-          }
+          "path": "/vless"
         }
       },
-      "listen": "0.0.0.0" 
-      // Cloud Run အတွက် Fallbacks များကို ဖယ်ရှားလိုက်ပါ
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"]
+      }
     }
   ],
   "outbounds": [
     {
       "protocol": "freedom",
       "settings": {}
-    },
-    {
-      "protocol": "blackhole",
-      "settings": {},
-      "tag": "blocked"
     }
   ]
 }
