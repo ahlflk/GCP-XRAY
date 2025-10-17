@@ -17,6 +17,10 @@
       },
       "streamSettings": {
         "network": "grpc",
+        "security": "tls", 
+        "tlsSettings": {
+          "alpn": ["h2"]
+        },
         "grpcSettings": {
           "serviceName": "${GRPC_SERVICE_NAME}"
         }

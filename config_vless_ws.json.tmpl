@@ -4,7 +4,7 @@
   },
   "inbounds": [
     {
-      "port": 80,  // <-- Port 80 သို့ ပြောင်းလိုက်ပါ
+      "port": 8080,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -17,6 +17,7 @@
       },
       "streamSettings": {
         "network": "ws",
+        "security": "tls", 
         "wsSettings": {
           "path": "${VLESS_PATH}",
           "headers": {
@@ -24,7 +25,10 @@
           }
         }
       },
-      "listen": "0.0.0.0" 
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"]
+      }
     }
   ],
   "outbounds": [
