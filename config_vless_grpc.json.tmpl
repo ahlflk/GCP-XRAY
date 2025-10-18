@@ -9,21 +9,18 @@
       "settings": {
         "clients": [
           {
-            "id": "${USER_ID}",
-            "level": 0
+            "id": "$USER_ID",
+            "flow": "xtls-rprx-vision"
           }
         ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "grpc",
-        "security": "tls", 
-        "tlsSettings": {
-          "alpn": ["h2"]
-        },
         "grpcSettings": {
-          "serviceName": "${GRPC_SERVICE_NAME}"
-        }
+          "serviceName": "$VLESS_PATH" 
+        },
+        "security": "none"
       }
     }
   ],
@@ -31,11 +28,6 @@
     {
       "protocol": "freedom",
       "settings": {}
-    },
-    {
-      "protocol": "blackhole",
-      "settings": {},
-      "tag": "blocked"
     }
   ]
 }

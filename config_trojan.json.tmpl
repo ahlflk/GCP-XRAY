@@ -9,15 +9,13 @@
       "settings": {
         "clients": [
           {
-            "password": "${USER_ID}",
-            "level": 0
+            "password": "$USER_ID"
           }
-        ],
-        "fallbacks": []
+        ]
       },
       "streamSettings": {
         "network": "tcp",
-        "security": "tls" 
+        "security": "none"
       }
     }
   ],
@@ -25,11 +23,6 @@
     {
       "protocol": "freedom",
       "settings": {}
-    },
-    {
-      "protocol": "blackhole",
-      "settings": {},
-      "tag": "blocked"
     }
   ]
 }

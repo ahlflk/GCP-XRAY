@@ -39,22 +39,28 @@ EMOJI_TELE="📢"
 # 🗂️ Global Variables
 REPO_URL="https://github.com/ahlflk/GCP-XRAY.git"
 REPO_DIR="GCP-XRAY"
-AR_REPO="gcp-xray-repo"
+AR_REPO="gcp-xray-repo" # Artifact Registry Repo Name
 DEFAULT_SERVICE_NAME="gcp-ahlflk"
 DEFAULT_HOST_DOMAIN="m.googleapis.com"
-DEFAULT_GRPC_SERVICE="ahlflk"
+
+# ⚠️ အသုံးပြုသူ တောင်းဆိုထားသည့် Default တန်ဖိုးများ
+DEFAULT_GRPC_SERVICE="ahlflk" 
 DEFAULT_TROJAN_PASS="ahlflk"
 DEFAULT_UUID="3675119c-14fc-46a4-b5f3-9a2c91a7d802"
+DEFAULT_VLESS_PATH="/ahlflk" 
+GRPC_SERVICE_NAME=$DEFAULT_GRPC_SERVICE # VLESS/gRPC တွင် VLESS_PATH အဖြစ် သုံးမည်။
+
 GCP_PROJECT_ID=""
 CPU_LIMIT=""
 MEMORY_LIMIT=""
 USER_ID=$DEFAULT_UUID
-GRPC_SERVICE_NAME=$DEFAULT_GRPC_SERVICE
-VLESS_PATH="/vless"
+VLESS_PATH=$DEFAULT_VLESS_PATH # VLESS WS တွင် Path အဖြစ် သုံးမည်။
+
 TELEGRAM_BOT_TOKEN=""
 TELEGRAM_CHAT_ID=""
 TELEGRAM_CHOICE="1" # Default: Do Not Send
 SPINNER_PID="" # Global variable for spinner process ID
+DEPLOY_INFO_FILE="deployment_info.txt"
 
 
 # -----------------------------------------------
@@ -85,7 +91,7 @@ header() {
     echo -e "${NC}"
 }
 
-# UUID Generator using Bash 
+# UUID Generator using Bash (User requested to keep this)
 generate_uuid() {
     local N=16
     local uuid_string=""
@@ -144,12 +150,13 @@ stop_spinner() {
 }
 
 # Wrapper to run a command and show spinner until it finishes
-# The command's own output is redirected to /dev/null
 start_and_wait() {
     local command_to_run="$1"
     
     # Run the command in the background, suppressing all output
-    eval "$command_to_run" >/dev/null 2>&1 &
+    # We use a temp file to capture output in case of failure for debugging
+    local TEMP_LOG=$(mktemp)
+    eval "$command_to_run" > "$TEMP_LOG" 2>&1 &
     local command_pid=$!
     
     # Start the visual spinner
@@ -158,15 +165,20 @@ start_and_wait() {
     # Wait for the command to finish
     if ! wait $command_pid; then
         stop_spinner
+        echo -e "\n${RED}--- COMMAND ERROR LOG ---${NC}"
+        cat "$TEMP_LOG" 1>&2
+        echo -e "${RED}-------------------------${NC}\n"
+        rm -f "$TEMP_LOG"
         error "Command failed: $command_to_run"
     fi
     
+    rm -f "$TEMP_LOG"
     # Stop the visual spinner
     stop_spinner
     return 0
 }
 
-# Progress Bar (Simple percentage for known wait times)
+# Simple Progress Bar for known wait times (only for API enablement)
 progress_bar() {
     local duration=$1; local bar_length=20; local elapsed=0;
     echo -n "${EMOJI_WAIT} Processing..."
@@ -210,7 +222,7 @@ send_telegram_notification() {
 # -----------------------------------------------
 # 🛠️ Initial Cleanup
 # -----------------------------------------------
-rm -f deploy.log
+rm -f deploy.log "$DEPLOY_INFO_FILE"
 
 # ===============================================
 # ⚙️ Configuration Options
@@ -231,9 +243,9 @@ read -rp "$(echo -e "${EMOJI_PROMPT} Enter your choice (1/2/3) [${VLESS_DEFAULT}
 PROTOCOL_CHOICE=${PROTOCOL_CHOICE:-$VLESS_DEFAULT}
 
 case "$PROTOCOL_CHOICE" in
-    1) PROTOCOL=$VLESS_PROTOCOL; PROTOCOL_LOWER="vless"; VLESS_PATH="/vless"; TEMPLATE_FILE="config_vless_ws.json.tmpl";;
-    2) PROTOCOL=$VLESS_GRPC_PROTOCOL; PROTOCOL_LOWER="vlessgrpc"; VLESS_PATH="/vlessgrpc"; TEMPLATE_FILE="config_vless_grpc.json.tmpl";;
-    3) PROTOCOL=$TROJAN_PROTOCOL; PROTOCOL_LOWER="trojan"; TEMPLATE_FILE="config_trojan.json.tmpl";;
+    1) PROTOCOL=$VLESS_PROTOCOL; PROTOCOL_LOWER="vless"; VLESS_PATH=$DEFAULT_VLESS_PATH; TEMPLATE_FILE="config_vless_ws.json.tmpl";;
+    2) PROTOCOL=$VLESS_GRPC_PROTOCOL; PROTOCOL_LOWER="vlessgrpc"; VLESS_PATH=$DEFAULT_GRPC_SERVICE; TEMPLATE_FILE="config_vless_grpc.json.tmpl";;
+    3) PROTOCOL=$TROJAN_PROTOCOL; PROTOCOL_LOWER="trojan"; VLESS_PATH=$DEFAULT_TROJAN_PASS; TEMPLATE_FILE="config_trojan.json.tmpl";;
     *) error "Invalid choice. Exiting.";;
 esac
 selected "$PROTOCOL"
@@ -367,24 +379,19 @@ if [[ "$PROTOCOL_LOWER" != "trojan" ]]; then
     esac
     selected "$USER_ID"
     
-    # VLESS gRPC - Service Name
+    # VLESS gRPC - Service Name (Default: ahlflk)
     if [[ "$PROTOCOL_LOWER" == "vlessgrpc" ]]; then
-        header "gRPC SERVICE NAME" "$EMOJI_CONFIG"
-        echo -e "${EMOJI_INFO} Default gRPC Service Name: ${CYAN}${DEFAULT_GRPC_SERVICE}${NC} ${GREEN}(Default)${NC}"
-        echo
-        read -rp "$(echo -e "${EMOJI_PROMPT} Enter Custom gRPC Service Name or Enter [${DEFAULT_GRPC_SERVICE}]: ${NC}")" CUSTOM_GRPC_SERVICE
-        GRPC_SERVICE_NAME=${CUSTOM_GRPC_SERVICE:-$DEFAULT_GRPC_SERVICE}
-        VLESS_PATH="/${GRPC_SERVICE_NAME}" 
+        info "Using default gRPC Service Name: ${CYAN}$DEFAULT_GRPC_SERVICE${NC}"
+        GRPC_SERVICE_NAME=$DEFAULT_GRPC_SERVICE
+        VLESS_PATH="/${GRPC_SERVICE_NAME}" # VLESS_PATH is used as serviceName in template
         selected "$GRPC_SERVICE_NAME"
     fi
     
 else # Trojan
-    # Trojan Password
+    # Trojan Password (Default: ahlflk)
     header "TROJAN PASSWORD" "$EMOJI_CONFIG"
-    echo -e "${EMOJI_INFO} Default Password: ${CYAN}${DEFAULT_TROJAN_PASS}${NC} ${GREEN}(Default)${NC}"
-    echo
-    read -rp "$(echo -e "${EMOJI_PROMPT} Enter Custom Password or Enter [${DEFAULT_TROJAN_PASS}]: ${NC}")" CUSTOM_TROJAN_PASS
-    USER_ID=${CUSTOM_TROJAN_PASS:-$DEFAULT_TROJAN_PASS}
+    info "Using default Trojan Password: ${CYAN}$DEFAULT_TROJAN_PASS${NC}"
+    USER_ID=$DEFAULT_TROJAN_PASS # Trojan uses password as user ID
     selected "$USER_ID"
 fi
 
@@ -409,9 +416,10 @@ TELEGRAM_MODE="${TELEGRAM_OPTIONS[$((TELEGRAM_CHOICE-1))]}"
 
 
 if [[ "$TELEGRAM_CHOICE" -ge "2" && "$TELEGRAM_CHOICE" -le "5" ]]; then
-    # Bot Token required for all sending modes
+    # Bot Token required for all sending modes (Silent input for security)
     echo
-    read -rp "$(echo -e "${EMOJI_PROMPT} Enter Telegram Bot Token (Required): ${NC}")" CUSTOM_BOT_TOKEN
+    read -rp "$(echo -e "${EMOJI_PROMPT} Enter Telegram Bot Token (Required): ${NC}")" -s CUSTOM_BOT_TOKEN
+    echo # Newline after silent input
     validate_bot_token "$CUSTOM_BOT_TOKEN"
     TELEGRAM_BOT_TOKEN="$CUSTOM_BOT_TOKEN"
 
@@ -452,6 +460,7 @@ echo -e "${EMOJI_CONFIG} ${BLUE}CPU Limit:${NC}       ${GREEN}${CPU_LIMIT} CPU C
 echo -e "${EMOJI_CONFIG} ${BLUE}Memory Limit:${NC}    ${GREEN}${MEMORY_LIMIT}${NC}"
 echo -e "${EMOJI_CONFIG} ${BLUE}Host Domain/SNI:${NC} ${GREEN}$HOST_DOMAIN${NC}"
 echo -e "${EMOJI_CONFIG} ${BLUE}UUID/Password:${NC}   ${GREEN}$USER_ID${NC}"
+echo -e "${EMOJI_CONFIG} ${BLUE}Vless Path/gRPC Name:${NC} ${GREEN}$VLESS_PATH${NC}"
 if [ "$TELEGRAM_CHOICE" -ne "1" ]; then
     echo -e "${EMOJI_CONFIG} ${BLUE}Telegram Mode:${NC}     ${GREEN}$TELEGRAM_MODE${NC}"
     echo -e "${EMOJI_CONFIG} ${BLUE}Telegram Chat ID:${NC}  ${GREEN}${TELEGRAM_CHAT_ID:-N/A}${NC}"
@@ -477,6 +486,7 @@ info "Checking for all required CLI tools..."
 command -v gcloud >/dev/null 2>&1 || error "gcloud CLI not found. Please install and authenticate with 'gcloud auth login' and 'gcloud config set project <ID>'."
 command -v docker >/dev/null 2>&1 || error "docker not found. Please install it."
 command -v git >/dev/null 2>&1 || error "git not found. Please install it."
+command -v envsubst >/dev/null 2>&1 || warn "envsubst not found. Falling back to sed for config generation."
 
 # Final Project ID check (must be done after gcloud check)
 GCP_PROJECT_ID=$(gcloud config get-value project)
@@ -495,15 +505,12 @@ header "GCP SETUP & API ENABLEMENT" "$EMOJI_START"
 gcloud config set project "$GCP_PROJECT_ID" --quiet
 info "Enabling necessary APIs (Cloud Run, Artifact Registry)..."
 
-API_CMD="gcloud services enable run.googleapis.com artifactregistry.googleapis.com --project=\"$GCP_PROJECT_ID\""
+# Artifact Registry APIs ကို GCR အတွက် သုံးပါ
+API_CMD="gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com --project=\"$GCP_PROJECT_ID\""
 
-# Use progress_bar for visual wait, and run the command capturing stderr
-progress_bar 10 
-if ! API_OUTPUT=$(eval "$API_CMD" 2>&1); then
-    echo -e "\n${RED}--- GCP API ENABLEMENT ERROR LOG ---${NC}"
-    echo "$API_OUTPUT" 1>&2
-    echo -e "${RED}------------------------------------${NC}\n"
-    error "GCP APIs could not be enabled. Please check permissions for user ${GCP_PROJECT_ID}."
+# start_and_wait ကို သုံးပြီး API enablement ကို စောင့်ပါ (ပိုမို စိတ်ချရသောနည်းလမ်း)
+if ! start_and_wait "$API_CMD"; then
+    error "GCP APIs could not be enabled. Please check permissions." 
 fi
 
 info "APIs enabled successfully."
@@ -521,7 +528,6 @@ if [ -d "$REPO_DIR" ]; then
     rm -rf "$REPO_DIR"
 fi
 info "Cloning $REPO_URL..."
-progress_bar 5 # Use simple bar for this short known task
 if ! git clone "$REPO_URL" >/dev/null 2>&1; then
     error "Git Clone failed. Check if the repository URL is correct or if Git is configured."
 fi
@@ -553,9 +559,9 @@ info "config.json created successfully. Dockerfile should be ready."
 # ===============================================
 # 🛠️ DOCKER BUILD & ARTIFACT REGISTRY PUSH
 # ===============================================
-header "DOCKER IMAGE BUILD & PUSH" "$EMOJI_START"
+header "DOCKER IMAGE BUILD & PUSH (USING AR)" "$EMOJI_START"
 
-# 1. Image Tag Definition
+# 1. Image Tag Definition (Artifact Registry format ကို သုံးပါ)
 AR_LOCATION="$REGION"
 IMAGE_TAG="${AR_LOCATION}-docker.pkg.dev/$GCP_PROJECT_ID/$AR_REPO/$SERVICE_NAME:latest"
 
@@ -572,17 +578,25 @@ gcloud auth configure-docker "$AR_LOCATION-docker.pkg.dev" --quiet >/dev/null 2>
 info "Authentication successful."
 
 
-# 3. Docker Build (Log Hidden)
+# -----------------------------------------------
+# 3. Docker Build (Spinner + Log Capture)
+# -----------------------------------------------
 info "Building Docker Image: ${CYAN}$IMAGE_TAG${NC}..."
-if ! docker build -t "$IMAGE_TAG" . >/dev/null 2>&1; then 
-    error "Docker build failed. Check 'docker build' output manually."
+BUILD_CMD="docker build -t \"$IMAGE_TAG\" ."
+
+# Run build in foreground to capture log if failed, but use start_and_wait for visual feedback
+if ! start_and_wait "$BUILD_CMD"; then
+    # Error message is already handled inside start_and_wait
+    error "Docker build failed."
 fi
+
 info "Docker image built successfully."
 
 
-# 4. Docker Push (Log Hidden)
+# 4. Docker Push (Spinner)
 info "Pushing Docker Image to Artifact Registry..."
-if ! docker push "$IMAGE_TAG" >/dev/null 2>&1; then
+PUSH_CMD="docker push \"$IMAGE_TAG\""
+if ! start_and_wait "$PUSH_CMD"; then
     error "Docker push failed. Check your network or permissions."
 fi
 info "Image pushed successfully."
@@ -605,8 +619,6 @@ DEPLOY_COMMAND="gcloud run deploy \"$SERVICE_NAME\" \
     --max-instances=1 \
     --allow-unauthenticated \
     --port=8080 \
-    --project=\"$GCP_PROJECT_ID\" \
-    --timeout=300 \
     --quiet \
     --wait"
 
@@ -640,29 +652,60 @@ fi
 HOST_NAME=$(echo "$SERVICE_URL" | sed -E 's|https://||; s|/||')
 
 # 2. Configuration Link Generation (URL Encoding Path)
-URL_PATH_ENCODED=$(echo "$VLESS_PATH" | sed 's/\//%2F/g')
+# VLESS_PATH is either /ahlflk or ahlflk (for gRPC) or ahlflk (for Trojan password)
+URL_PATH_ENCODED=$(echo "$VLESS_PATH" | sed 's/\//%2F/g') 
 XRAY_LINK_LABEL="GCP-${PROTOCOL_LOWER^^}-${SERVICE_NAME}"
 XRAY_LINK=""
 
 if [[ "$PROTOCOL_LOWER" == "vless" ]]; then
-    # VLESS WS link (ws path encoding required)
-    XRAY_LINK="vless://${USER_ID}@${HOST_NAME}:443?encryption=none&security=tls&host=${HOST_DOMAIN}&path=${URL_PATH_ENCODED}&type=ws&sni=${HOST_DOMAIN}#${XRAY_LINK_LABEL}"
+    # VLESS WS link
+    XRAY_LINK="vless://${USER_ID}@${HOST_DOMAIN}:443?encryption=none&security=tls&host=${HOST_NAME}&path=${URL_PATH_ENCODED}&type=ws&sni=${HOST_NAME}#${XRAY_LINK_LABEL}"
 elif [[ "$PROTOCOL_LOWER" == "vlessgrpc" ]]; then
-    # VLESS gRPC link
-    XRAY_LINK="vless://${USER_ID}@${HOST_NAME}:443?encryption=none&security=tls&type=grpc&serviceName=${GRPC_SERVICE_NAME}&sni=${HOST_DOMAIN}#${XRAY_LINK_LABEL}"
+    # VLESS gRPC link (VLESS_PATH contains GRPC_SERVICE_NAME)
+    XRAY_LINK="vless://${USER_ID}@${HOST_DOMAIN}:443?encryption=none&security=tls&type=grpc&serviceName=${VLESS_PATH}&sni=${HOST_NAME}#${XRAY_LINK_LABEL}"
 elif [[ "$PROTOCOL_LOWER" == "trojan" ]]; then
-    # Trojan link
-    XRAY_LINK="trojan://${USER_ID}@${HOST_NAME}:443?security=tls&sni=${HOST_DOMAIN}#${XRAY_LINK_LABEL}"
+    # Trojan link (USER_ID contains the password)
+    XRAY_LINK="trojan://${USER_ID}@${HOST_DOMAIN}:443?security=tls&sni=${HOST_NAME}#${XRAY_LINK_LABEL}"
 fi
 
 
-# 3. Display Links
+# 3. Save Deployment Info to File
+echo -e "\n${EMOJI_INFO} Saving deployment information to ${CYAN}${DEPLOY_INFO_FILE}${NC}..."
+
+{
+    echo "======================================================"
+    echo "  GCP CLOUD RUN XRAY DEPLOYMENT INFO"
+    echo "  Deployment Time: $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "======================================================"
+    echo "Project ID:          $GCP_PROJECT_ID"
+    echo "Service Name:        $SERVICE_NAME"
+    echo "Region:              $REGION"
+    echo "Protocol:            $PROTOCOL"
+    echo "Host Domain/SNI:     $HOST_DOMAIN"
+    echo "Cloud Run URL:       $SERVICE_URL"
+    echo "------------------------------------------------------"
+    echo "UUID/Password:       $USER_ID"
+    if [[ "$PROTOCOL_LOWER" == "vless" ]]; then
+        echo "Vless Path:          $VLESS_PATH"
+    elif [[ "$PROTOCOL_LOWER" == "vlessgrpc" ]]; then
+        echo "gRPC Service Name:   $VLESS_PATH"
+    fi
+    echo "------------------------------------------------------"
+    echo "XRAY Configuration Link:"
+    echo "$XRAY_LINK"
+    echo "======================================================"
+} > "../$DEPLOY_INFO_FILE" # Go back one level to save in the initial directory
+
+info "Deployment details saved successfully to ${CYAN}$DEPLOY_INFO_FILE${NC}"
+
+
+# 4. Display Links
 echo -e "${EMOJI_LINK} ${BLUE}Cloud Run URL:${NC}           ${CYAN}${SERVICE_URL}${NC}"
 echo -e "${EMOJI_LINK} ${BLUE}XRAY Configuration Link:${NC}"
 echo -e "${GREEN}${BOLD}${XRAY_LINK}${NC}"
 
 
-# 4. Telegram Notification
+# 5. Telegram Notification
 if [ "$TELEGRAM_CHOICE" -ne "1" ]; then
     info "Preparing Telegram notification..."
     MESSAGE_BODY=$(cat <<EOF
@@ -688,7 +731,7 @@ echo -e "\n${EMOJI_TITLE} ${GREEN}${BOLD}Deployment Complete! Your Service is no
 cd ..
 rm -rf "$REPO_DIR" # Cleanup cloned directory
 
-# 5. Final Pause (Keeps the terminal open)
+# 6. Final Pause (Keeps the terminal open)
 echo
 # Clear the EXIT trap before the final read
 trap - EXIT

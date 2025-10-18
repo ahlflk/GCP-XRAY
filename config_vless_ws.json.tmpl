@@ -9,25 +9,21 @@
       "settings": {
         "clients": [
           {
-            "id": "${USER_ID}",
-            "level": 0
+            "id": "$USER_ID",
+            "flow": "xtls-rprx-vision"
           }
         ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "ws",
-        "security": "tls", 
         "wsSettings": {
-          "path": "${VLESS_PATH}",
+          "path": "$VLESS_PATH",
           "headers": {
-            "Host": "${HOST_DOMAIN}"
+            "Host": "$HOST_DOMAIN"
           }
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
+        },
+        "security": "none"
       }
     }
   ],
@@ -35,11 +31,6 @@
     {
       "protocol": "freedom",
       "settings": {}
-    },
-    {
-      "protocol": "blackhole",
-      "settings": {},
-      "tag": "blocked"
     }
   ]
 }
